@@ -404,26 +404,26 @@ test('boots without a connection do not use up the sends of a kept standby', asy
   assert.equal(store.data.projectors[PID].standby.sends, 0);
 });
 
-test('the kept standby lasts 10 minutes of the monotonic clock in a run (a wall clock step back changes nothing)', async (t) => {
+test('the kept standby lasts 2 minutes of the monotonic clock in a run (a wall clock step back changes nothing)', async (t) => {
   const { gladys, projector, app, clock } = await setup(t, { projector: { power: '3' } });
   const device = await createDevice(gladys);
   await press(gladys, device, 'standby');
   const wall = app.now;
   app.now = () => wall() - 3_600_000;
-  await clock.advance(9 * 60_000);
+  await clock.advance(110_000);
   await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
   projector.state.power = '1';
   app.lastAttempt.clear();
   await app.readState(app.data.projectors[PID]);
   assert.equal(projector.state.power, '0');
-  assert.equal(FAST.standbyKeep, 10 * 60_000);
+  assert.equal(FAST.standbyKeep, 2 * 60_000);
 });
 
-test('the kept standby is dropped after 10 minutes', async (t) => {
+test('the kept standby is dropped after 2 minutes', async (t) => {
   const { gladys, projector, app, clock } = await setup(t, { projector: { power: '3' } });
   const device = await createDevice(gladys);
   await press(gladys, device, 'standby');
-  await clock.advance(10 * 60_000 + 1_000);
+  await clock.advance(2 * 60_000 + 1_000);
   await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
   projector.state.power = '1';
   app.lastAttempt.clear();
@@ -471,4 +471,20 @@ test('PJLINK ERRA as greeting (no password sent) is no password refusal', async 
   await dropConnection(app, projector);
   assert.deepEqual(await press(gladys, device, 'standby'), { success: true });
   assert.equal(projector.state.power, '0');
+});
+
+test('a standby never accepted is given up after 2 minutes: a projector turned on by the remote at 3 minutes gets nothing', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, { projector: { power: '3' } });
+  const device = await createDevice(gladys);
+  await press(gladys, device, 'standby');
+  assert.equal(app.data.projectors[PID].standby.accepted, false);
+  await clock.advance(3 * 60_000);
+  await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+  const mark = projector.lines.length;
+  projector.state.power = '1';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.ok(!projector.lines.slice(mark).includes('%1POWR 0'));
+  assert.equal(projector.state.power, '1');
+  assert.equal(app.data.projectors[PID].standby, undefined);
 });

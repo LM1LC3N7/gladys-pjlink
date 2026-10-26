@@ -122,7 +122,7 @@ Une mise en veille **non acceptée** (refusée par ERR3 pendant le
 préchauffage, ou sans connexion, ou sans réponse) est **gardée** (dans les
 données de l'intégration : un redémarrage la garde aussi) et renvoyée par
 les lectures suivantes qui montrent le vidéoprojecteur allumé, les premières
-5 s et 20 s plus tard, 3 fois au plus, pendant 10 minutes au plus (comptées
+5 s et 20 s plus tard, 3 fois au plus, pendant 2 minutes au plus (comptées
 sur une horloge monotone tant que l'intégration tourne). Tant que le
 vidéoprojecteur préchauffe, elle attend. Elle est abandonnée dès qu'une
 lecture montre le vidéoprojecteur en veille ou en refroidissement, ou quand

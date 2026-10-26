@@ -71,8 +71,8 @@ export const T = {
     ),
   standbyPending: (names) =>
     both(
-      `Standby not confirmed yet, sent again at the next readings (3 times at most, for 10 minutes): ${list(names)}.`,
-      `Mise en veille pas encore confirmée, renvoyée aux prochaines lectures (3 fois au plus, pendant 10 minutes) : ${list(names)}.`,
+      `Standby not confirmed yet, sent again at the next readings (3 times at most, for 2 minutes): ${list(names)}.`,
+      `Mise en veille pas encore confirmée, renvoyée aux prochaines lectures (3 fois au plus, pendant 2 minutes) : ${list(names)}.`,
     ),
   noProjector: both(
     'No projector known yet: type their address in the configuration, then scan in the Discovery tab.',

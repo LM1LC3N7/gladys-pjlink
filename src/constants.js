@@ -50,7 +50,7 @@ export const TIMINGS = Object.freeze({
   /** After a command not confirmed yet: read again this much later. */
   followUps: Object.freeze([5_000, 20_000]),
   /** A standby not confirmed is kept (in /data) this long, sent again 3 times at most. */
-  standbyKeep: 10 * 60_000,
+  standbyKeep: 2 * 60_000,
   standbySends: 3,
   /** A typed address where nothing answered is asked again after this. */
   probeRetry: 60_000,

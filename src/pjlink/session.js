@@ -269,7 +269,7 @@ export class Session {
    * and this is the first command of the session: without it, nothing is
    * sent (AUTH_REQUIRED).
    */
-  request({ cls = 1, body, param }, { timeoutMs, password }) {
+  request({ cls = 1, body, param }, { timeoutMs, password, afterWrite }) {
     let line;
     try {
       line = commandLine(cls, body, param);
@@ -309,6 +309,8 @@ export class Session {
       this.pending = { timer, resolve, reject, cls, body };
       this.lastActivity = this.monotonic();
       this.socket.write(`${prefix}${line}\r`);
+      // Only once the write was made (a throw above: nothing left).
+      afterWrite?.();
     });
   }
 

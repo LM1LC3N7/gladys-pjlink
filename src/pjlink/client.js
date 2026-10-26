@@ -163,11 +163,12 @@ export class ProjectorClient {
    * session whose identity was checked (`session.identity === 'ok'`), else
    * nothing is sent. `withSession`: resolves `{ value, session }`.
    * `beforeSend()`: called once the turn and the session are obtained, right
-   * before writing; a throw means nothing is sent.
+   * before writing; a throw means nothing is sent. `afterWrite()`: called
+   * right after the bytes were written to the socket.
    */
   async request(
     command,
-    { deadline, priority = false, password, identity, withSession, beforeSend } = {},
+    { deadline, priority = false, password, identity, withSession, beforeSend, afterWrite } = {},
   ) {
     const release = await this.acquire(priority, deadline);
     try {
@@ -188,6 +189,7 @@ export class ProjectorClient {
         const value = await session.request(command, {
           timeoutMs: Math.min(this.requestTimeout, left()),
           password,
+          afterWrite,
         });
         return withSession ? { value, session } : value;
       } catch (err) {

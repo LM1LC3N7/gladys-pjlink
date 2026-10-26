@@ -777,6 +777,8 @@ export class PjlinkApp {
       reading = await this.read(projector, options);
     } finally {
       this.inFlight.delete(projector.id);
+      // A timer that fell during this reading skipped it: the readings go on (the timer is replaced, never doubled).
+      this.schedule();
     }
     if (reading !== undefined) {
       this.readings.set(projector.id, { ...reading, at: this.monotonic() });
@@ -1336,8 +1338,11 @@ export class PjlinkApp {
             if (this.counter(this.stops, id) !== ctx.stops) {
               throw nothing('standby asked meanwhile');
             }
-            ctx.sent = true;
             this.bump(this.sends, id);
+          },
+          // Only after the write: a refused write (session closed meanwhile) sent nothing.
+          afterWrite: () => {
+            ctx.sent = true;
           },
         },
       );

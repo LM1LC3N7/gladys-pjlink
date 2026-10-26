@@ -51,6 +51,9 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- Standby never accepted (projector unreachable): kept 2 minutes, not 10 (review 2, R1, decided by
+  Louis; like the kept closings of the other modules): beyond that it is given up and the status
+  stops saying it is kept, so a projector turned on by the remote afterwards is never stopped.
 - Forum: no dedicated topic, no post from this module's work; one recap per
   wave in /t/10385, posted by the main session.
 - Reuse: pypjlink2 1.2.2 (Apache-2.0, PyPI 2020-06-14, repository read at
@@ -116,7 +119,7 @@ up to date at the end of every milestone.
   awaited; a failed save does not stop the send), waits while `3` is read,
   sent again by a reading showing `1` (follow-ups at 5 s and 20 s, then the
   regular ones), 3 sends at most (counted only when it left: review 1, M4),
-  10 minutes at most (monotonic clock in a run, wall clock read back after a
+  2 minutes at most (monotonic clock in a run, wall clock read back after a
   restart, a date in the future invalid; review 1, M3); at boot, decided on
   a `POWR ?` read first, without `getConfig()` (never sent blind). Dropped
   when a reading made after it shows `0` or `2`, or when a Power on asked

@@ -22,7 +22,9 @@ the notes of the version's GitHub Release.
   reading or a command, cancels the commands still waiting, cuts a reading
   frozen for 1 s; never sent again once accepted; not accepted, kept in /data
   and sent again by the readings that show the projector on (3 times at most,
-  10 minutes), decided on a power read at a restart.
+  2 minutes), decided on a power read at a restart.
+- Readings always go on: a timer that falls during a background reading
+  (follow-up, Check) is set again when that reading ends.
 - Optional PJLink password (MD5 digest); a missing or refused password blocks
   its projector without any automatic retry until it is changed or "Check the
   projectors" succeeds.

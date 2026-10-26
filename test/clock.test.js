@@ -123,3 +123,23 @@ test('at most 280 states a minute, all projectors together', async (t) => {
   await clock.advance(60_001);
   assert.equal(app.allowStates(20), true);
 });
+
+test('the timer falling during a background reading: the readings go on at the interval', async (t) => {
+  const { clock, read, projector, app } = await created(t);
+  await waitFor(() => !app.inFlight.has(PID), 'the end of the first reading');
+  // A background reading (follow-up, Check button) in progress when the timer falls.
+  projector.latencyMs = 150;
+  app.lastAttempt.clear();
+  const background = app.readState(app.data.projectors[PID]);
+  assert.ok(app.inFlight.has(PID));
+  await clock.advance(INTERVAL);
+  await background;
+  projector.latencyMs = 0;
+  assert.ok(app.pollTimer !== undefined, 'a timer is set again');
+  const before = read.calls.length;
+  for (let i = 0; i < 2; i += 1) {
+    await clock.advance(INTERVAL);
+    await waitFor(() => read.calls.length === before + i + 1, `the reading ${i + 1} after`);
+    await waitFor(() => !app.inFlight.has(PID), 'its end');
+  }
+});
