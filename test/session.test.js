@@ -146,3 +146,37 @@ test('names: UTF-8 when valid, else Latin-1; C1 controls removed', async (t) => 
   );
   session.close();
 });
+
+test('afterWrite: called once, after the write; never when the request is refused before', async (t) => {
+  const fake = await fakeProjector({ latencyMs: 100, singleClient: false });
+  t.after(() => fake.close());
+  const session = await Session.open({ host: '127.0.0.1', port: fake.port, timeoutMs: 500 });
+  const order = [];
+  const write = session.socket.write.bind(session.socket);
+  session.socket.write = (...args) => {
+    order.push('write');
+    return write(...args);
+  };
+  const first = session.request(POWR, { timeoutMs: 1_000, afterWrite: () => order.push('after') });
+  // A command in progress: refused before anything is written.
+  await assert.rejects(
+    session.request(POWR, { timeoutMs: 1_000, afterWrite: () => order.push('busy') }),
+    (err) => err.kind === ERROR_KINDS.PROTOCOL,
+  );
+  await first;
+  assert.deepEqual(order, ['write', 'after']);
+  session.close();
+  await assert.rejects(
+    session.request(POWR, { timeoutMs: 500, afterWrite: () => order.push('closed') }),
+    (err) => err.kind === ERROR_KINDS.UNREACHABLE,
+  );
+  const locked = await fakeProjector({ password: 'pw' });
+  t.after(() => locked.close());
+  const guarded = await Session.open({ host: '127.0.0.1', port: locked.port, timeoutMs: 500 });
+  await assert.rejects(
+    guarded.request(POWR, { timeoutMs: 500, afterWrite: () => order.push('password') }),
+    (err) => err.kind === ERROR_KINDS.AUTH_REQUIRED,
+  );
+  guarded.close();
+  assert.deepEqual(order, ['write', 'after']);
+});

@@ -94,6 +94,8 @@ export class PjlinkApp {
     this.inFlight = new Set();
     /** id -> [timer handles] of the follow-up readings. */
     this.followUps = new Map();
+    /** id -> timer handle of the dedicated power reading of a kept standby. */
+    this.standbyWatches = new Map();
     /** address key -> { at (monotonic), kind? } of the last identification. */
     this.probes = new Map();
     /** ids of the devices created in Gladys. */
@@ -213,6 +215,7 @@ export class PjlinkApp {
     }
     this.backgroundTimers.clear();
     this.followUps.clear();
+    this.standbyWatches.clear();
     for (const client of this.clients.values()) {
       client.close();
     }
@@ -841,6 +844,9 @@ export class PjlinkApp {
           }
         }
       }
+      if (projector.standby) {
+        this.watchStandby(projector);
+      }
       const reading = { reachable: true, power };
       reading.errors = parseErrors(await optional(1, 'ERST'));
       reading.lampHours = parseLampHours(await optional(1, 'LAMP'));
@@ -998,7 +1004,45 @@ export class PjlinkApp {
     }
   }
 
+  /**
+   * While a standby is kept: a power reading of its own every
+   * `standbyWatch` (12 s), whatever the refresh interval, that sends it as
+   * soon as the projector accepts it (on after warming up, back on the
+   * network). Stops when the standby is confirmed, dropped or expired.
+   */
+  watchStandby(projector) {
+    if (this.standbyWatches.has(projector.id) || !projector.standby) {
+      return;
+    }
+    const handle = this.later(async () => {
+      this.standbyWatches.delete(projector.id);
+      const p = this.data?.projectors?.[projector.id];
+      if (!p?.standby) {
+        return;
+      }
+      if (!this.standbyAlive(p)) {
+        this.logger.warn(`${projectorName(p)}: kept standby dropped (expired)`);
+        this.clearStandby(p);
+        return;
+      }
+      if (p.standby.boot !== 'password') {
+        await this.checkStandby(p);
+      }
+      if (p.standby) {
+        this.watchStandby(p);
+      }
+      await this.updateStatus();
+    }, this.timings.standbyWatch);
+    this.standbyWatches.set(projector.id, handle);
+  }
+
   clearStandby(projector) {
+    const watch = this.standbyWatches.get(projector.id);
+    if (watch) {
+      this.timers.clearTimeout(watch);
+      this.backgroundTimers.delete(watch);
+      this.standbyWatches.delete(projector.id);
+    }
     if (projector.standby) {
       delete projector.standby;
       this.persist();
@@ -1025,6 +1069,7 @@ export class PjlinkApp {
     }
     if (projector.standby) {
       this.followUp(projector);
+      this.watchStandby(projector);
     }
     throw fail(result.kind ?? ERROR_KINDS.TIMEOUT, result.message, result.sent);
   }
@@ -1176,6 +1221,7 @@ export class PjlinkApp {
         }
         if (p.standby && !result.confirmed) {
           this.logger.warn(`${projectorName(p)}: standby kept: ${result.message}`);
+          this.watchStandby(p);
         }
       }),
     );
@@ -1206,6 +1252,9 @@ export class PjlinkApp {
           waitsPassword: boot,
           message: `${name}: password missing or refused, nothing sent`,
         };
+      }
+      if (err.kind !== ERROR_KINDS.PREEMPTED && err.kind !== ERROR_KINDS.BUDGET) {
+        this.standbyGap(projector);
       }
       return { message: `${name}: power not read (${err.message}), nothing sent` };
     }

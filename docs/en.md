@@ -108,7 +108,9 @@ the network while cooling down): it is not sent again.
 A Standby **not accepted** (refused with ERR3 while warming up, or no
 connection, or no answer) is **kept** (in the data of the integration, so a
 restart keeps it too) and sent again by the next readings that show the
-projector on, the first ones 5 s and 20 s later, 3 times at most, for 2
+projector on: its own power readings every 12 s (whatever the refresh
+interval, stopped once it is confirmed or dropped) and the usual readings,
+3 times at most, for 2
 minutes at most (counted on a monotonic clock while the integration runs).
 While the projector is still warming up, it waits. It is dropped once a
 reading shows the projector in standby or cooling down, or when a Power on

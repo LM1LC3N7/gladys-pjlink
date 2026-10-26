@@ -488,3 +488,58 @@ test('a standby never accepted is given up after 2 minutes: a projector turned o
   assert.equal(projector.state.power, '1');
   assert.equal(app.data.projectors[PID].standby, undefined);
 });
+
+/**
+ * Standby pressed while warming up (ERR3), with a long refresh interval:
+ * its own power readings send it once the projector is on.
+ */
+async function warmUpCase(t, { interval, warmUp }) {
+  const { gladys, projector, app, clock } = await setup(t, {
+    projector: { power: '3' },
+    config: undefined,
+  });
+  await gladys.fake.configUpdated({ addresses: projector.address, poll_interval: interval });
+  const device = await createDevice(gladys);
+  const ack = await press(gladys, device, 'standby');
+  assert.match(ack.error, /ERR3, warming up/);
+  let elapsed = 0;
+  while (elapsed < 3 * 60_000 && app.data.projectors[PID].standby) {
+    await clock.advance(1_000);
+    elapsed += 1_000;
+    if (elapsed >= warmUp) {
+      projector.state.power = '1';
+    }
+    await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+    await sleep(2);
+  }
+  await waitFor(() => projector.state.power === '0', 'the standby applied');
+  assert.equal(app.standbyWatches.size, 0, 'the dedicated readings stopped');
+}
+
+test('Standby during a 60 s warm-up, refresh every 300 s: applied by its own readings', async (t) => {
+  await warmUpCase(t, { interval: 300, warmUp: 60_000 });
+});
+
+test('Standby during a 100 s warm-up, refresh every 60 s: applied by its own readings', async (t) => {
+  await warmUpCase(t, { interval: 60, warmUp: 100_000 });
+});
+
+test('no dedicated power reading without a kept standby', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, {
+    projector: { power: '1' },
+    config: undefined,
+  });
+  await gladys.fake.configUpdated({ addresses: projector.address, poll_interval: 300 });
+  const device = await createDevice(gladys);
+  assert.deepEqual(await press(gladys, device, 'standby'), { success: true });
+  await waitFor(() => !app.inFlight.has(PID), 'idle');
+  const before = projector.lines.length;
+  for (let i = 0; i < 120; i += 1) {
+    await clock.advance(1_000);
+  }
+  await sleep(20);
+  assert.equal(app.standbyWatches.size, 0);
+  // Only the follow-ups of the command (5 s, 20 s), no reading every 12 s.
+  const reads = projector.lines.slice(before).filter((l) => l === '%1POWR ?').length;
+  assert.ok(reads <= 2, `${reads} power reads`);
+});

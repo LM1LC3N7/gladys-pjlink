@@ -117,8 +117,10 @@ up to date at the end of every milestone.
   (ERR3 while warming up, no connection, no answer: "in doubt, the stop
   leaves"): kept in /data (`standby: { at, sends, accepted }`, the save not
   awaited; a failed save does not stop the send), waits while `3` is read,
-  sent again by a reading showing `1` (follow-ups at 5 s and 20 s, then the
-  regular ones), 3 sends at most (counted only when it left: review 1, M4),
+  sent again by a reading showing `1` (review 3, N2: its own `POWR ?`
+  readings every 12 s while it is kept, whatever `poll_interval`, stopped
+  once it is confirmed, dropped or expired; plus the follow-ups at 5 s and
+  20 s and the regular readings), 3 sends at most (counted only when it left: review 1, M4),
   2 minutes at most (monotonic clock in a run, wall clock read back after a
   restart, a date in the future invalid; review 1, M3); at boot, decided on
   a `POWR ?` read first, without `getConfig()` (never sent blind). Dropped
