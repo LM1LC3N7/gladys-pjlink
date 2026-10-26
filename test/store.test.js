@@ -78,7 +78,7 @@ test('sanitized: no prototype pollution, ids and values checked', () => {
   assert.equal(p.host, '');
   assert.equal(p.port, 4352);
   assert.deepEqual(p.inputs, [{ code: '31' }]);
-  assert.deepEqual(p.standby, { at: 5, sends: 1 });
+  assert.deepEqual(p.standby, { at: 5, sends: 1, accepted: false });
   assert.equal(p.name, 'ab');
   assert.deepEqual(Object.keys(data.authBlocks), ['10.0.0.5:4352']);
   assert.equal(data.authBlocks['10.0.0.5:4352'].password, undefined);

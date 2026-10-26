@@ -162,8 +162,13 @@ export class ProjectorClient {
    * the projector asks for one on this session. `identity`: sent only on a
    * session whose identity was checked (`session.identity === 'ok'`), else
    * nothing is sent. `withSession`: resolves `{ value, session }`.
+   * `beforeSend()`: called once the turn and the session are obtained, right
+   * before writing; a throw means nothing is sent.
    */
-  async request(command, { deadline, priority = false, password, identity, withSession } = {}) {
+  async request(
+    command,
+    { deadline, priority = false, password, identity, withSession, beforeSend } = {},
+  ) {
     const release = await this.acquire(priority, deadline);
     try {
       const left = () => deadline - mono();
@@ -177,6 +182,8 @@ export class ProjectorClient {
       if (!(left() > 0)) {
         throw new ProjectorError(ERROR_KINDS.BUDGET, 'No time left, nothing sent');
       }
+      // The caller's last check, in its turn, just before the bytes leave (throws: nothing sent).
+      beforeSend?.();
       try {
         const value = await session.request(command, {
           timeoutMs: Math.min(this.requestTimeout, left()),

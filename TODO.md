@@ -29,7 +29,9 @@ up to date at the end of every milestone.
     models close PJLink in standby, as the specification allows);
   - the answer to `POWR 0` while warming up (ERR3 expected) and how long the
     warm-up lasts (the kept standby is sent again by the readings);
-  - whether `SNUM` answers on every class 2 model, and in standby;
+  - whether `SNUM` answers on every class 2 model, and in standby (review 1,
+    M6: a model answering ERR3 to `SNUM` out of power keeps its identity
+    "not confirmed", so Power on is refused there; to decide with a tester);
   - the `INST` / `INNM` of recent models (class 2 inputs `6x`, `xA`...);
   - whether the projector closes an idle connection itself before 30 s, and
     how fast it accepts a new one after a close (one retry after 150 ms);
@@ -100,21 +102,25 @@ up to date at the end of every milestone.
   commands waiting; a command in flight with nothing received for 1 s
   (connecting, greeting or answer) is cut, the old connection closed before a
   new one opens. Every command asked before it and not sent yet is refused
-  "nothing sent" (`stops` counter checked just before the bytes leave). It
-  sends `POWR 0` without reading anything first, reads the power back
-  (standby or cooling down: confirmed); retried every 250 ms within 3.2 s
-  while nothing could be sent. Not confirmed: kept in /data (`standby: { at,
-sends }`, written before the send; a failed save does not stop the send),
-  sent again by the readings (follow-ups at 5 s and 20 s, then the regular
-  ones), 3 times at most, 10 minutes at most; at boot, every valid one is
-  sent at once without `getConfig()` nor a reading (a date in the future or
-  past the 10 minutes: dropped). Dropped when a reading made after it shows
-  `0`, `2` or `3` (a power on started since is never stopped by a resend), or
-  when a Power on asked after it is sent and answered OK. Residual case
-  (documented): a projector seen on (`1`) gets it again, so a power on by
-  the remote is stopped if the readings missed both the cool-down (2) and the
-  warm-up (3) in between (the confirm read and the follow-ups at 5 s and 20 s
-  failing); a cool-down usually lasts 30 s or more (to check at milestone 2). While it is kept,
+  "nothing sent" (`stops` counter checked by `beforeSend`, in the turn of the
+  connection, right before the bytes leave; review 1, I2). It sends `POWR 0`
+  without reading anything first, reads the power back (standby or cooling
+  down: confirmed); retried every 250 ms within 3.2 s while nothing could be
+  sent. (Review 1, I1) `OK` = accepted (`standby.accepted`): never sent again
+  blindly; only a reading showing `1` with no failed reading since (no gap)
+  sends it again; a failed reading, an identity problem, a `3` (a power on
+  started since) or a restart drop it; accepted but not read back (projector
+  off the network while cooling down): dropped. (Review 1, B1) Not accepted
+  (ERR3 while warming up, no connection, no answer: "in doubt, the stop
+  leaves"): kept in /data (`standby: { at, sends, accepted }`, the save not
+  awaited; a failed save does not stop the send), waits while `3` is read,
+  sent again by a reading showing `1` (follow-ups at 5 s and 20 s, then the
+  regular ones), 3 sends at most (counted only when it left: review 1, M4),
+  10 minutes at most (monotonic clock in a run, wall clock read back after a
+  restart, a date in the future invalid; review 1, M3); at boot, decided on
+  a `POWR ?` read first, without `getConfig()` (never sent blind). Dropped
+  when a reading made after it shows `0` or `2`, or when a Power on asked
+  after it is sent and answered OK. While it is kept,
   input and A/V mute are refused "nothing sent". A refused password is not
   sent by a Standby (the connection is made, the greeting read: a projector
   that no longer asks for a password gets it). At boot, a projector asking
@@ -158,6 +164,14 @@ sends }`, written before the send; a failed save does not stop the send),
   over (status says so, nothing saved); a file that is not JSON is moved to
   `pjlink.json.bad` (ids are rebuilt identically by a Scan; the password
   blocks and kept standbys of that file are lost). Written at a clean stop.
+- `PJLINK ERRA` as greeting, or answering a command when no digest was sent,
+  is a refused connection (`session_refused`: lockout, too many sessions),
+  never a refused password: no block (review 1, I3).
+- Serial numbers made of one repeated character (`0000000000`, `XXXX`) are
+  placeholders, not serials (address id); a serial seen at another address is
+  logged ("moved, or two projectors give the same serial number"). Lines are
+  decoded as UTF-8 when valid, else Latin-1; C0 and C1 controls removed
+  (review 1, M1, M2).
 - Hostile input: a line is 256 bytes at most, checked before its end arrives;
   the greeting and answers match exact patterns, an answer for another
   command closes the connection; names, makers, models cleaned of control

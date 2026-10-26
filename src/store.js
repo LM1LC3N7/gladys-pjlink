@@ -31,7 +31,7 @@ export const emptyData = () => ({
 const AUTH_BLOCK_KINDS = new Set(['auth_required', 'auth_refused']);
 const text = (value, max) =>
   typeof value === 'string' && value !== ''
-    ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, max)
+    ? value.replace(/[\x00-\x1f\x7f-\x9f]/g, '').slice(0, max)
     : undefined;
 const finite = (value) => (Number.isFinite(value) ? value : undefined);
 
@@ -48,6 +48,7 @@ function sanitizeProjector(id, p) {
       ? {
           at: p.standby.at,
           sends: Number.isInteger(p.standby.sends) ? Math.max(0, p.standby.sends) : 0,
+          accepted: p.standby.accepted === true,
         }
       : undefined;
   return {

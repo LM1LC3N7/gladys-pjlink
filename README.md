@@ -39,9 +39,10 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (PjlinkApp)
   on the state read just before, confirmed by a read back, answered within
   3.5 s.
 - **Standby** is the protective command: first in line, cancels what was
-  queued before it, cuts a reading frozen for 1 s, kept in /data and sent
-  again by the readings (3 times at most, 10 minutes) until it shows applied,
-  sent at once at a restart, before the configuration is read.
+  queued before it, cuts a reading frozen for 1 s. Accepted (`OK`): never
+  sent again blindly. Not accepted (ERR3, no answer, unreachable): kept in
+  /data and sent again by the readings that show the projector on (3 times at
+  most, 10 minutes), decided on a power read at a restart.
 - **Password** (optional): MD5 digest before the first command of a
   connection. A missing or refused one blocks the projector, persisted, never
   tried again by itself; only a 6-bit mark of a refused one is kept, to tell

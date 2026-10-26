@@ -36,6 +36,11 @@ export const ERROR_KINDS = Object.freeze({
   REFUSED: 'refused',
   /** No time left: nothing sent. */
   BUDGET: 'budget',
+  /**
+   * `PJLINK ERRA` as greeting, before any password was sent: the projector
+   * refuses the connection (lockout, too many sessions), not a password.
+   */
+  SESSION_REFUSED: 'session_refused',
   /** Cut for a standby (frozen for 1 s): not a failure of the projector. */
   PREEMPTED: 'preempted',
   /** The identity of the projector was not checked on this connection: nothing sent. */
@@ -55,6 +60,16 @@ export class ProjectorError extends Error {
 }
 
 const realMonotonic = () => performance.now();
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+
+/** A line: UTF-8 when it is valid UTF-8 (names), else Latin-1 (PJLink says ASCII). */
+function decode(bytes) {
+  try {
+    return utf8.decode(bytes);
+  } catch {
+    return bytes.toString('latin1');
+  }
+}
 
 export class Session {
   /**
@@ -163,7 +178,7 @@ export class Session {
         this.tooLong();
         return;
       }
-      const line = this.buffer.subarray(0, end).toString('latin1').replace(/^\n+/, '');
+      const line = decode(this.buffer.subarray(0, end)).replace(/^\n+/, '');
       this.buffer = this.buffer.subarray(end + 1);
       this.line(line);
       if (this.closed) {
@@ -191,7 +206,10 @@ export class Session {
       if (!greeting) {
         this.handshake.fail(ERROR_KINDS.PROTOCOL, 'Not a PJLink greeting');
       } else if (greeting.error) {
-        this.handshake.fail(ERROR_KINDS.AUTH_REFUSED, 'The projector refused the session (ERRA)');
+        this.handshake.fail(
+          ERROR_KINDS.SESSION_REFUSED,
+          'The projector refused the connection (ERRA before any password)',
+        );
       } else {
         this.greeting = greeting;
         const { done } = this.handshake;
@@ -209,10 +227,16 @@ export class Session {
     this.pending = undefined;
     const answer = parseAnswer(text);
     if (answer?.authError) {
-      // The command was not run: the projector checks the digest first.
+      // The command was not run: the projector checks the digest first. A
+      // refusal is the password's only when a digest was sent.
       this.destroy();
       pending.reject(
-        new ProjectorError(ERROR_KINDS.AUTH_REFUSED, 'The projector refused the password'),
+        this.authSent
+          ? new ProjectorError(ERROR_KINDS.AUTH_REFUSED, 'The projector refused the password')
+          : new ProjectorError(
+              ERROR_KINDS.SESSION_REFUSED,
+              'The projector refused the connection (ERRA, no password sent)',
+            ),
       );
       return;
     }

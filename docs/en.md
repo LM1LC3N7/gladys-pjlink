@@ -98,17 +98,25 @@ commands waiting, the configuration not read yet, or a state not read yet:
 - when no connection can be made, it is tried again every 250 ms within its
   3.2 s.
 
-A Standby not confirmed is **kept** (in the data of the integration, so a
-restart keeps it too) and sent again by the next readings, the first ones 5 s
-and 20 s later, 3 times at most, for 10 minutes at most. It is dropped once a
-reading shows the projector in standby or cooling down, or warming up (a
-power on started since, by the remote or by Gladys, and seen warming up is
-not stopped by a resend), or when a Power on sent from Gladys after it is
-accepted. A projector seen on at a reading gets it again: if the readings
-missed both its cool-down and a new power on by the remote (unreachable
-meanwhile), that power on is stopped. At a
-restart, the kept standbys are sent at once, before the configuration is
-read and before any reading.
+A Standby the projector **accepted** (`OK`) is never sent again blindly: if
+the power read back still shows it on, it is sent again only by a reading
+that still shows it on, with no failed reading in between; a reading that
+fails, or one showing it warming up (a power on started since, by the remote
+or by Gladys), drops it. Accepted but not read back (many projectors leave
+the network while cooling down): it is not sent again.
+
+A Standby **not accepted** (refused with ERR3 while warming up, or no
+connection, or no answer) is **kept** (in the data of the integration, so a
+restart keeps it too) and sent again by the next readings that show the
+projector on, the first ones 5 s and 20 s later, 3 times at most, for 10
+minutes at most (counted on a monotonic clock while the integration runs).
+While the projector is still warming up, it waits. It is dropped once a
+reading shows the projector in standby or cooling down, or when a Power on
+sent from Gladys after it is accepted.
+
+At a restart, a kept standby not accepted is decided on a power read first,
+before the configuration is read and before any reading: sent only if the
+projector is still on. An accepted one is dropped at a restart.
 
 The cases where a Standby does not leave ("nothing sent", kept and sent again
 as above):

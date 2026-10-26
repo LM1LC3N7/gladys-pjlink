@@ -233,7 +233,7 @@ export function cleanText(value, max = 64) {
   if (typeof value !== 'string') {
     return undefined;
   }
-  const text = value.replace(/[\x00-\x1f\x7f]/g, '').trim();
+  const text = value.replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim();
   return text === '' ? undefined : text.slice(0, max);
 }
 
@@ -246,5 +246,6 @@ export function parseSerial(value) {
     return undefined;
   }
   const serial = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return serial.length >= 4 ? serial : undefined;
+  // A placeholder (`0000000000`, `XXXX`) is no serial number: many models share it.
+  return serial.length >= 4 && !/^(.)\1*$/.test(serial) ? serial : undefined;
 }

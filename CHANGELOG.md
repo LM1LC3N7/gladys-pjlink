@@ -20,8 +20,9 @@ the notes of the version's GitHub Release.
   without confirmation", "not applied yet", "refused by the projector").
 - Standby, the protective command: first in line, never held back by a
   reading or a command, cancels the commands still waiting, cuts a reading
-  frozen for 1 s, kept in /data and sent again until a reading shows it
-  applied (3 times at most, 10 minutes), sent at once at a restart.
+  frozen for 1 s; never sent again once accepted; not accepted, kept in /data
+  and sent again by the readings that show the projector on (3 times at most,
+  10 minutes), decided on a power read at a restart.
 - Optional PJLink password (MD5 digest); a missing or refused password blocks
   its projector without any automatic retry until it is changed or "Check the
   projectors" succeeds.

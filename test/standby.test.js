@@ -156,7 +156,7 @@ test('a standby not applied is sent again 3 times at most', async (t) => {
   });
   const device = await createDevice(gladys);
   const ack = await press(gladys, device, 'standby');
-  assert.match(ack.error, /^Sent; Living room shows "On": not applied yet/);
+  assert.match(ack.error, /^Sent \(OK\); Living room shows "On": not applied yet/);
   for (let i = 0; i < 6; i += 1) {
     app.lastAttempt.clear();
     await app.readState(app.data.projectors[PID]);
@@ -166,7 +166,7 @@ test('a standby not applied is sent again 3 times at most', async (t) => {
   await clock.advance(30_000);
 });
 
-test('a power on started after the standby (warming up) is never stopped by a resend', async (t) => {
+test('a standby accepted (OK), then warming up seen: a newer power on, never stopped by a resend', async (t) => {
   const { gladys, projector, app } = await setup(t, { projector: { power: '1', ignore: true } });
   const device = await createDevice(gladys);
   await press(gladys, device, 'standby');
@@ -195,14 +195,19 @@ test('a newer Power on that left and was accepted cancels the resend; one refuse
   assert.equal(app.data.projectors[PID].standby, undefined);
 });
 
-test('Standby while warming up (ERR3): kept, sent again once on', async (t) => {
+test('Standby while warming up (ERR3): kept while warming up, sent once on', async (t) => {
   const { gladys, projector, app } = await setup(t, { projector: { power: '3' } });
   const device = await createDevice(gladys);
   const ack = await press(gladys, device, 'standby');
   assert.match(
     ack.error,
-    /Refused by Living room \(ERR3, warming up\): sent again at the next readings/,
+    /Refused by Living room \(ERR3, warming up\): kept, sent again once the projector is on/,
   );
+  // Still warming up at the next reading: kept, nothing sent (the warm-up is the one it refused).
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.ok(app.data.projectors[PID].standby, 'kept while warming up');
+  assert.deepEqual(powr(projector), ['%1POWR 0']);
   projector.state.power = '1';
   app.lastAttempt.clear();
   await app.readState(app.data.projectors[PID]);
@@ -250,7 +255,8 @@ test('at boot, a standby kept in /data leaves at once, without Gladys nor a read
   const store = keptStandby(fake, clock.now() - 60_000);
   const app = bootApp(t, store, clock);
   await app.boot();
-  assert.deepEqual(fake.lines, ['%1POWR 0', '%1POWR ?']);
+  // Read first (never sent blind), then sent: the projector is still on.
+  assert.deepEqual(fake.lines, ['%1POWR ?', '%1POWR 0', '%1POWR ?']);
   assert.equal(fake.state.power, '0');
   await clock.advance(10);
   assert.equal(store.data.projectors[PID].standby, undefined);
@@ -283,7 +289,7 @@ test('at boot, a projector asking for a password gets the standby once the confi
   // No block from a boot without configuration.
   assert.deepEqual(Object.keys(app.data.authBlocks), []);
   await app.start(await gladys.getConfig(), { connected: true });
-  assert.deepEqual(fake.lines.slice(0, 2), ['%1POWR 0', '%1POWR ?']);
+  assert.deepEqual(fake.lines.slice(0, 3), ['%1POWR ?', '%1POWR 0', '%1POWR ?']);
   assert.equal(fake.state.power, '0');
 });
 
@@ -321,7 +327,7 @@ test('getConfig() failing: said in the status, tried again; Standby still goes f
   assert.equal(failures, 2);
 });
 
-test('a standby kept is written to /data before anything is sent, even if the save fails', async (t) => {
+test('a standby whose /data save fails still leaves', async (t) => {
   const { gladys, projector, app } = await setup(t, {
     projector: { power: '1' },
     store: new MemoryStore(emptyData(), { failSave: true }),
@@ -330,4 +336,139 @@ test('a standby kept is written to /data before anything is sent, even if the sa
   assert.deepEqual(await press(gladys, device, 'standby'), { success: true });
   assert.equal(projector.state.power, '0');
   await app.updateStatus();
+});
+
+test('a standby accepted (OK) but not read back is never sent again: a remote power on stays on', async (t) => {
+  const { gladys, projector, app } = await setup(t, {
+    projector: { power: '1', offlineAfterStandby: true },
+  });
+  const device = await createDevice(gladys);
+  const ack = await press(gladys, device, 'standby');
+  assert.match(ack.error, /^Sent, accepted by Living room \(OK\); not read back$/);
+  assert.equal(app.data.projectors[PID].standby, undefined, 'not kept: it was accepted');
+  // Back on the network, switched on again with the remote.
+  projector.state.silent.clear();
+  projector.state.power = '1';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.deepEqual(powr(projector), ['%1POWR 0']);
+  assert.equal(projector.state.power, '1');
+});
+
+test('a standby accepted, then a reading that failed: never sent again', async (t) => {
+  const { gladys, projector, app } = await setup(t, { projector: { power: '1', ignore: true } });
+  const device = await createDevice(gladys);
+  await press(gladys, device, 'standby');
+  assert.equal(app.data.projectors[PID].standby.accepted, true);
+  await dropConnection(app, projector);
+  projector.state.greeting = 'garbage\r';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.equal(app.data.projectors[PID].standby, undefined, 'a gap: dropped');
+  projector.state.greeting = undefined;
+  await dropConnection(app, projector);
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.deepEqual(powr(projector), ['%1POWR 0']);
+});
+
+test('at boot, an accepted standby is never sent; one not accepted is read first', async (t) => {
+  for (const [extra, power, expected] of [
+    [{ accepted: true }, '1', []],
+    [{}, '0', ['%1POWR ?']],
+  ]) {
+    const fake = await fakeProjector({ power });
+    t.after(() => fake.close());
+    const clock = testClock();
+    const store = keptStandby(fake, clock.now() - 60_000);
+    Object.assign(store.data.projectors[PID].standby, extra);
+    const app = bootApp(t, store, clock);
+    await app.boot();
+    assert.deepEqual(fake.lines, expected, JSON.stringify(extra));
+    assert.equal(fake.state.power, power);
+    assert.equal(app.data.projectors[PID].standby, undefined);
+  }
+});
+
+test('boots without a connection do not use up the sends of a kept standby', async (t) => {
+  const fake = await fakeProjector({ power: '1' });
+  const port = fake.port;
+  await fake.close();
+  const clock = testClock();
+  const store = keptStandby({ port }, clock.now() - 1_000);
+  for (let i = 0; i < 4; i += 1) {
+    const app = bootApp(t, store, clock);
+    await app.boot();
+    await app.stop();
+  }
+  assert.equal(store.data.projectors[PID].standby.sends, 0);
+});
+
+test('the kept standby lasts 10 minutes of the monotonic clock in a run (a wall clock step back changes nothing)', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, { projector: { power: '3' } });
+  const device = await createDevice(gladys);
+  await press(gladys, device, 'standby');
+  const wall = app.now;
+  app.now = () => wall() - 3_600_000;
+  await clock.advance(9 * 60_000);
+  await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+  projector.state.power = '1';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.equal(projector.state.power, '0');
+  assert.equal(FAST.standbyKeep, 10 * 60_000);
+});
+
+test('the kept standby is dropped after 10 minutes', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, { projector: { power: '3' } });
+  const device = await createDevice(gladys);
+  await press(gladys, device, 'standby');
+  await clock.advance(10 * 60_000 + 1_000);
+  await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+  projector.state.power = '1';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.equal(projector.state.power, '1');
+  assert.equal(app.data.projectors[PID].standby, undefined);
+});
+
+test('a Power on asked before a Standby never leaves after it, even waiting for the connection', async (t) => {
+  const { gladys, projector, app } = await setup(t, { projector: { power: '0' } });
+  const device = await createDevice(gladys);
+  let violations = 0;
+  for (let offset = 0; offset <= 240; offset += 20) {
+    projector.state.power = '0';
+    projector.latencyMs = 60;
+    const mark = projector.lines.length;
+    app.lastAttempt.clear();
+    const reading = app.readState(app.data.projectors[PID]);
+    const on = press(gladys, device, 'power_on');
+    await sleep(offset);
+    const off = press(gladys, device, 'standby');
+    await Promise.all([reading, on, off]);
+    const sent = projector.lines.slice(mark).filter((l) => /^%1POWR [01]$/.test(l));
+    const stop = sent.lastIndexOf('%1POWR 0');
+    if (stop !== -1 && sent.slice(stop + 1).includes('%1POWR 1')) {
+      violations += 1;
+    }
+  }
+  assert.equal(violations, 0);
+});
+
+test('PJLINK ERRA as greeting (no password sent) is no password refusal', async (t) => {
+  const { gladys, projector, app } = await setup(t, {
+    projector: { power: '1', password: 'pw' },
+    config: { addresses: '', password: 'pw' },
+  });
+  await gladys.fake.configUpdated({ addresses: projector.address, password: 'pw' });
+  const device = await createDevice(gladys);
+  await dropConnection(app, projector);
+  projector.state.greeting = 'PJLINK ERRA\r';
+  app.lastAttempt.clear();
+  await app.readState(app.data.projectors[PID]);
+  assert.deepEqual(Object.keys(app.data.authBlocks), []);
+  projector.state.greeting = undefined;
+  await dropConnection(app, projector);
+  assert.deepEqual(await press(gladys, device, 'standby'), { success: true });
+  assert.equal(projector.state.power, '0');
 });

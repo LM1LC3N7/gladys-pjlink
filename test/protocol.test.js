@@ -118,6 +118,9 @@ test('values', () => {
   assert.equal(parseClass(''), undefined);
   assert.equal(parseSerial(' ab-12 34 '), 'AB1234');
   assert.equal(parseSerial('abc'), undefined);
+  // Placeholders shared by many units are no serial number.
+  assert.equal(parseSerial('0000000000'), undefined);
+  assert.equal(parseSerial('XXXX'), undefined);
   assert.equal(parseSerial('x'.repeat(33)), undefined);
 });
 

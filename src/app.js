@@ -131,7 +131,9 @@ export class PjlinkApp {
         const now = this.now();
         const mono = this.monotonic();
         for (const p of this.projectors) {
-          if (p.standby && !this.standbyValid(p, now)) {
+          // An accepted standby is never sent again after a restart (the
+          // projector may have been switched on since, unseen).
+          if (p.standby && (p.standby.accepted || !this.standbyAlive(p, now))) {
             delete p.standby;
           }
           if (p.lastPollAt !== undefined) {
@@ -515,6 +517,11 @@ export class PjlinkApp {
         this.readings.set(other.id, { at: this.monotonic(), identity: 'moved' });
       }
     }
+    if (projector.host && addressKey(projector) !== key) {
+      this.logger.warn(
+        `${projectorName(projector)}: serial number ${info.serial ?? '?'} now at ${key} (was ${addressKey(projector)}): moved, or two projectors give the same serial number`,
+      );
+    }
     Object.assign(projector, {
       host: address.host,
       port: address.port,
@@ -814,6 +821,7 @@ export class PjlinkApp {
       const identity = await this.ensureIdentity(projector, client, deadline);
       if (identity !== 'ok') {
         this.clearAuthBlock(projector);
+        this.standbyGap(projector);
         return this.identityProblem(projector, identity);
       }
       const stops = this.counter(this.stops, id);
@@ -822,21 +830,10 @@ export class PjlinkApp {
         throw fail(ERROR_KINDS.PROTOCOL, 'Unexpected power state');
       }
       this.clearAuthBlock(projector);
-      if (projector.standby && !this.standbyValid(projector)) {
-        this.logger.warn(
-          `${projectorName(projector)}: standby still not applied after ${this.timings.standbySends} sends: given up`,
-        );
-        this.clearStandby(projector);
-      }
       if (projector.standby && stops === this.counter(this.stops, id)) {
         // Read after the standby was asked: decides whether it is sent again.
-        if (isStandbyState(power) || power.code === '3') {
-          // Applied, or a power on started since (never stopped by a resend).
-          this.clearStandby(projector);
-        } else {
-          projector.standby.sends += 1;
-          this.persist();
-          const result = await this.sendStandby(projector);
+        if (this.settleStandby(projector, power) === 'send') {
+          const result = await this.sendStandby(projector, { resend: true });
           if (result.power) {
             power = result.power;
           }
@@ -859,6 +856,7 @@ export class PjlinkApp {
       if (err.kind === ERROR_KINDS.PREEMPTED || err.kind === ERROR_KINDS.BUDGET) {
         return undefined;
       }
+      this.standbyGap(projector);
       if (err.kind === ERROR_KINDS.UNREACHABLE || err.kind === ERROR_KINDS.NO_ANSWER) {
         return { reachable: false };
       }
@@ -908,7 +906,8 @@ export class PjlinkApp {
       identity: undefined,
       reachable: true,
       ...values,
-      at: this.monotonic(),
+      // Merged values keep the age of the reading they come from.
+      at: previous?.reachable ? previous.at : this.monotonic(),
     });
     this.publishStates(projector).catch(() => {});
   }
@@ -937,15 +936,64 @@ export class PjlinkApp {
 
   // --- Standby, the protective command -------------------------------------------------
 
-  /** A kept standby still to send: not expired, not dated in the future, sends left. */
-  standbyValid(projector, now = this.now()) {
+  /**
+   * A kept standby not expired: in this run, its age on the monotonic clock;
+   * read back from /data, on the wall clock (a date in the future is invalid).
+   */
+  standbyAlive(projector, now) {
     const standby = projector.standby;
-    return Boolean(
-      standby &&
-      standby.at <= now + 60_000 &&
-      now - standby.at <= this.timings.standbyKeep &&
-      standby.sends < this.timings.standbySends,
-    );
+    if (!standby) {
+      return false;
+    }
+    if (standby.atMono !== undefined) {
+      return this.monotonic() - standby.atMono <= this.timings.standbyKeep;
+    }
+    const wall = now ?? this.now();
+    return standby.at <= wall + 60_000 && wall - standby.at <= this.timings.standbyKeep;
+  }
+
+  /**
+   * What a power read after the standby means for it: `applied` (standby,
+   * cooling down), `newer` (warming up after the projector accepted it: a
+   * power on started since), `wait` (warming up, the standby refused or not
+   * sent: sent once on), `send` (on), or `expired` / `given-up`. Anything but
+   * `wait` and `send` drops it.
+   */
+  settleStandby(projector, power) {
+    const standby = projector.standby;
+    let decision;
+    if (!this.standbyAlive(projector)) {
+      decision = 'expired';
+    } else if (isStandbyState(power)) {
+      decision = 'applied';
+    } else if (power.code === '3') {
+      decision = standby.accepted ? 'newer' : 'wait';
+    } else if (standby.sends >= this.timings.standbySends) {
+      decision = 'given-up';
+    } else {
+      decision = 'send';
+    }
+    if (decision !== 'wait' && decision !== 'send') {
+      if (decision !== 'applied') {
+        this.logger.warn(`${projectorName(projector)}: kept standby dropped (${decision})`);
+      }
+      this.clearStandby(projector);
+    }
+    return decision;
+  }
+
+  /**
+   * A reading failed or was not this projector's: an accepted standby is no
+   * longer followed without a gap, so never sent again (a power on by the
+   * remote meanwhile would be stopped).
+   */
+  standbyGap(projector) {
+    if (projector.standby?.accepted) {
+      this.logger.info(
+        `${projectorName(projector)}: standby accepted, not followed: not sent again`,
+      );
+      this.clearStandby(projector);
+    }
   }
 
   clearStandby(projector) {
@@ -966,7 +1014,7 @@ export class PjlinkApp {
    */
   async standby(projector) {
     this.bump(this.stops, projector.id);
-    projector.standby = { at: this.now(), sends: 0 };
+    projector.standby = { at: this.now(), atMono: this.monotonic(), sends: 0, accepted: false };
     this.persist();
     this.updateStatus().catch(() => {});
     const result = await this.sendStandby(projector);
@@ -983,7 +1031,7 @@ export class PjlinkApp {
    * Sends `POWR 0` within `standbyBudget`, tried again every `standbyRetry`
    * while nothing could be sent. `{ confirmed, sent, message, power }`.
    */
-  async sendStandby(projector, { boot = false } = {}) {
+  async sendStandby(projector, { boot = false, resend = false } = {}) {
     const name = projectorName(projector);
     if (!projector.host) {
       return {
@@ -993,7 +1041,16 @@ export class PjlinkApp {
     }
     const id = projector.id;
     const stops = this.counter(this.stops, id);
+    const standby = projector.standby;
     const deadline = rt() + this.timings.standbyBudget;
+    /** Counted as a send of the kept standby only when it left. */
+    const left = () => {
+      this.bump(this.sends, id);
+      if (resend && standby && projector.standby === standby) {
+        standby.sends += 1;
+        this.persist();
+      }
+    };
     const client = this.clientOf(projector);
     // A refused password is never sent again by a standby.
     const password = this.isAuthBlocked(projector) ? undefined : this.config.password;
@@ -1024,7 +1081,7 @@ export class PjlinkApp {
         power,
         kind: ERROR_KINDS.TIMEOUT,
         message: power
-          ? `Sent; ${name} shows "${power.label}": not applied yet (sent again at the next readings)`
+          ? `Sent (OK); ${name} shows "${power.label}": not applied yet (sent again if the next reading still shows it on)`
           : sentMessage,
       };
     };
@@ -1032,12 +1089,21 @@ export class PjlinkApp {
     while (deadline - rt() >= this.timings.minSendTime) {
       try {
         await ask('0');
-        this.bump(this.sends, id);
-        return settle(await verify(), `Sent (OK); ${name} not read back yet`);
+        left();
+        if (standby && projector.standby === standby && stops === this.counter(this.stops, id)) {
+          // Accepted: never sent again but on a reading without a gap.
+          standby.accepted = true;
+          this.persist();
+        }
+        const power = await verify();
+        if (!power) {
+          this.standbyGap(projector);
+        }
+        return settle(power, `Sent, accepted by ${name} (OK); not read back`);
       } catch (err) {
         last = err;
         if (err.kind === ERROR_KINDS.REFUSED) {
-          this.bump(this.sends, id);
+          left();
           // ERR3 (warming up, cooling down): the power read back tells which.
           const power = await verify();
           if (isStandbyState(power)) {
@@ -1047,7 +1113,7 @@ export class PjlinkApp {
             sent: true,
             power,
             kind: err.kind,
-            message: `Refused by ${name} (${err.code}${power ? `, ${power.label.toLowerCase()}` : ''}): sent again at the next readings`,
+            message: `Refused by ${name} (${err.code}${power ? `, ${power.label.toLowerCase()}` : ''}): kept, sent again once the projector is on`,
           };
         }
         if (AUTH_KINDS.has(err.kind)) {
@@ -1061,7 +1127,7 @@ export class PjlinkApp {
           };
         }
         if (err.sent) {
-          this.bump(this.sends, id);
+          left();
           return {
             sent: true,
             kind: err.kind,
@@ -1082,17 +1148,17 @@ export class PjlinkApp {
 
   /**
    * Every standby kept in /data, all at once, each checked against its
-   * expiry; at boot without the configuration (a projector asking for a
-   * password waits for it).
+   * expiry and decided on a power read first (never sent blind); at boot
+   * without the configuration (a projector asking for a password waits for
+   * it).
    */
   async flushStandbys({ boot = false } = {}) {
-    const now = this.now();
     await Promise.all(
       this.projectors.map(async (p) => {
         if (!p.standby) {
           return;
         }
-        if (!this.standbyValid(p, now)) {
+        if (!this.standbyAlive(p)) {
           this.clearStandby(p);
           return;
         }
@@ -1100,12 +1166,9 @@ export class PjlinkApp {
           return;
         }
         const standby = p.standby;
-        standby.sends += 1;
-        this.persist();
-        const result = await this.sendStandby(p, { boot });
+        const result = await this.checkStandby(p, { boot });
         if (result.waitsPassword && p.standby === standby) {
           standby.boot = 'password';
-          standby.sends -= 1;
         } else if (p.standby === standby) {
           delete standby.boot;
         }
@@ -1114,6 +1177,45 @@ export class PjlinkApp {
         }
       }),
     );
+  }
+
+  /** A kept standby at a (re)start: the power read first, then the decision. */
+  async checkStandby(projector, { boot = false } = {}) {
+    const name = projectorName(projector);
+    if (!projector.host) {
+      return { message: `${name}: address unknown` };
+    }
+    const client = this.clientOf(projector);
+    const password = this.isAuthBlocked(projector) ? undefined : this.config.password;
+    let power;
+    try {
+      power = parsePower(
+        await client.request(
+          { cls: 1, body: 'POWR', param: '?' },
+          { deadline: rt() + this.timings.standbyBudget, priority: true, password },
+        ),
+      );
+    } catch (err) {
+      if (AUTH_KINDS.has(err.kind)) {
+        if (!boot) {
+          this.noteSessionError(projector, err);
+        }
+        return {
+          waitsPassword: boot,
+          message: `${name}: password missing or refused, nothing sent`,
+        };
+      }
+      return { message: `${name}: power not read (${err.message}), nothing sent` };
+    }
+    if (!power) {
+      return { message: `${name}: unexpected power state, nothing sent` };
+    }
+    this.update(projector, { power });
+    const decision = this.settleStandby(projector, power);
+    if (decision === 'send') {
+      return this.sendStandby(projector, { boot, resend: true });
+    }
+    return { confirmed: decision === 'applied', message: `${name}: ${decision}` };
   }
 
   // --- Commands --------------------------------------------------------------------
@@ -1217,21 +1319,28 @@ export class PjlinkApp {
         throw this.readError(err, what, ctx);
       }
     };
-    const send = async (cls, body, param) => {
-      // Checked just before the bytes leave: never after Gladys was told "nothing sent".
-      if (ctx.late || left() < this.timings.minSendTime) {
-        throw nothing('no time left for this command');
-      }
-      if (this.counter(this.stops, id) !== ctx.stops) {
-        throw nothing('standby asked meanwhile');
-      }
-      ctx.sent = true;
-      this.bump(this.sends, id);
-      return client.request(
+    const send = (cls, body, param) =>
+      client.request(
         { cls, body, param },
-        { deadline: ctx.deadline, password, identity: true },
+        {
+          deadline: ctx.deadline,
+          password,
+          identity: true,
+          // Checked in the turn of the connection, just before the bytes
+          // leave: a Standby that went first cancels it; never after Gladys
+          // was told "nothing sent".
+          beforeSend: () => {
+            if (ctx.late || left() < this.timings.minSendTime) {
+              throw nothing('no time left for this command');
+            }
+            if (this.counter(this.stops, id) !== ctx.stops) {
+              throw nothing('standby asked meanwhile');
+            }
+            ctx.sent = true;
+            this.bump(this.sends, id);
+          },
+        },
       );
-    };
     const notApplied = (what) =>
       fail(ERROR_KINDS.TIMEOUT, `Sent; ${name} ${what}: not applied yet`, true);
     /** The read back after a send: a failure is "sent, not confirmed", never a refusal. */
@@ -1364,7 +1473,9 @@ export class PjlinkApp {
       if (err.kind === ERROR_KINDS.REFUSED && err.sent) {
         return fail(
           err.kind,
-          `Refused by ${name} (${err.code}): not available now or on this model`,
+          err.code === 'ERR4'
+            ? `Refused by ${name} (ERR4: projector failure, see its errors)`
+            : `Refused by ${name} (${err.code}): not available now or on this model`,
           true,
         );
       }

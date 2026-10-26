@@ -71,6 +71,8 @@ export async function fakeProjector(options = {}) {
         }
         if (param === '0') {
           if (state.power === '3') return 'ERR3';
+          // Leaves the network once the standby is accepted (no power read back).
+          if (state.offlineAfterStandby) state.silent.add('POWR');
           if (!state.ignore && state.power === '1') state.power = state.coolDown ? '2' : '0';
           return 'OK';
         }

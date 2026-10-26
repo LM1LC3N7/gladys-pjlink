@@ -105,3 +105,44 @@ test('the client: a waiter past its deadline gives up, nothing sent', async (t) 
   await first;
   assert.ok(!fake.lines.includes('%1POWR 1'));
 });
+
+test('the client: a command needing the identity is not sent on a connection not checked', async (t) => {
+  const fake = await fakeProjector();
+  t.after(() => fake.close());
+  const client = new ProjectorClient({ host: '127.0.0.1', port: fake.port });
+  t.after(() => client.close());
+  await assert.rejects(
+    client.request(
+      { cls: 1, body: 'POWR', param: '1' },
+      { deadline: performance.now() + 1_000, identity: true },
+    ),
+    (err) => err.kind === ERROR_KINDS.IDENTITY && !err.sent,
+  );
+  assert.deepEqual(fake.lines, []);
+});
+
+test('names: UTF-8 when valid, else Latin-1; C1 controls removed', async (t) => {
+  const device = await tcpServer({
+    onConnect: () => 'PJLINK 0\r',
+    onData: (chunk) =>
+      chunk.toString().includes('NAME')
+        ? Buffer.concat([
+            Buffer.from('%1NAME=Sal'),
+            Buffer.from('ón\u0085', 'utf8'),
+            Buffer.from('\r'),
+          ])
+        : Buffer.concat([Buffer.from('%1INF1=Sal'), Buffer.from([0xf3]), Buffer.from('n\r')]),
+  });
+  t.after(() => device.close());
+  const session = await Session.open({ host: '127.0.0.1', port: device.port, timeoutMs: 500 });
+  const { cleanText } = await import('../src/pjlink/protocol.js');
+  assert.equal(
+    cleanText(await session.request({ cls: 1, body: 'NAME', param: '?' }, { timeoutMs: 500 })),
+    'Salón',
+  );
+  assert.equal(
+    cleanText(await session.request({ cls: 1, body: 'INF1', param: '?' }, { timeoutMs: 500 })),
+    'Salón',
+  );
+  session.close();
+});

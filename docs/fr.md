@@ -110,18 +110,28 @@ par un état pas encore lu :
 - quand aucune connexion ne s'établit, elle est réessayée toutes les 250 ms
   dans ses 3,2 s.
 
-Une mise en veille non confirmée est **gardée** (dans les données de
-l'intégration : un redémarrage la garde aussi) et renvoyée par les lectures
-suivantes, les premières 5 s et 20 s plus tard, 3 fois au plus, pendant
-10 minutes au plus. Elle est abandonnée dès qu'une lecture montre le
-vidéoprojecteur en veille ou en refroidissement, ou en préchauffage (un
-allumage lancé depuis, par la télécommande ou par Gladys, et vu en
-préchauffage n'est pas coupé par un renvoi), ou quand un « Allumer » envoyé
-depuis Gladys après elle est accepté. Un vidéoprojecteur vu allumé à une
-lecture la reçoit à nouveau : si les lectures ont manqué à la fois son
-refroidissement et un nouvel allumage à la télécommande (injoignable
-entre-temps), cet allumage est coupé. Au redémarrage, les mises en veille gardées partent aussitôt, avant
-la lecture de la configuration et avant toute lecture.
+Une mise en veille **acceptée** par le vidéoprojecteur (`OK`) n'est jamais
+renvoyée à l'aveugle : si l'état relu le montre encore allumé, elle n'est
+renvoyée que par une lecture qui le montre encore allumé, sans lecture
+échouée entre-temps ; une lecture qui échoue, ou qui le montre en
+préchauffage (un allumage lancé depuis, par la télécommande ou par Gladys),
+l'abandonne. Acceptée mais pas relue (beaucoup de vidéoprojecteurs quittent
+le réseau pendant le refroidissement) : elle n'est pas renvoyée.
+
+Une mise en veille **non acceptée** (refusée par ERR3 pendant le
+préchauffage, ou sans connexion, ou sans réponse) est **gardée** (dans les
+données de l'intégration : un redémarrage la garde aussi) et renvoyée par
+les lectures suivantes qui montrent le vidéoprojecteur allumé, les premières
+5 s et 20 s plus tard, 3 fois au plus, pendant 10 minutes au plus (comptées
+sur une horloge monotone tant que l'intégration tourne). Tant que le
+vidéoprojecteur préchauffe, elle attend. Elle est abandonnée dès qu'une
+lecture montre le vidéoprojecteur en veille ou en refroidissement, ou quand
+un « Allumer » envoyé depuis Gladys après elle est accepté.
+
+Au redémarrage, une mise en veille gardée non acceptée est décidée sur une
+lecture de l'état d'abord, avant la lecture de la configuration et avant
+toute lecture : envoyée seulement si le vidéoprojecteur est encore allumé.
+Une mise en veille acceptée est abandonnée au redémarrage.
 
 Les cas où une mise en veille ne part pas (« rien envoyé », gardée et
 renvoyée comme ci-dessus) :
