@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-26
+
 ### Added
 
 - PJLink projectors (class 1 and 2) on the local network, added by IP address
@@ -32,3 +34,6 @@ the notes of the version's GitHub Release.
 - Identity checked once per connection (serial number, or maker and model)
   before anything is published or sent.
 - "Check the projectors" button; user documentation in English and French.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-pjlink/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-pjlink/releases/tag/v0.1.1
