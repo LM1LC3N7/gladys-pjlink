@@ -543,3 +543,59 @@ test('no dedicated power reading without a kept standby', async (t) => {
   const reads = projector.lines.slice(before).filter((l) => l === '%1POWR ?').length;
   assert.ok(reads <= 2, `${reads} power reads`);
 });
+
+test('Standby refused with ERR3 for 90 s while the projector reads on: ERR3 is not one of the 3 sends', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, {
+    projector: { power: '1' },
+    config: undefined,
+  });
+  await gladys.fake.configUpdated({ addresses: projector.address, poll_interval: 60 });
+  const device = await createDevice(gladys);
+  projector.state.refuseSet.POWR = 'ERR3';
+  const ack = await press(gladys, device, 'standby');
+  assert.match(ack.error, /ERR3/);
+  for (let elapsed = 0; elapsed < 90_000; elapsed += 1_000) {
+    await clock.advance(1_000);
+    await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+    await sleep(2);
+  }
+  assert.ok(app.data.projectors[PID].standby, 'still kept');
+  assert.equal(app.data.projectors[PID].standby.sends, 0, 'ERR3 refusals not counted');
+  delete projector.state.refuseSet.POWR;
+  for (let elapsed = 0; elapsed < 30_000 && projector.state.power !== '0'; elapsed += 1_000) {
+    await clock.advance(1_000);
+    await waitFor(() => !app.inFlight.has(PID), 'the readings of the way');
+    await sleep(2);
+  }
+  await waitFor(() => projector.state.power === '0', 'the standby applied after the 90 s');
+});
+
+test('the dedicated power readings of a kept standby are not priority', async (t) => {
+  const { gladys, projector, app, clock } = await setup(t, {
+    projector: { power: '3' },
+    config: undefined,
+  });
+  await gladys.fake.configUpdated({ addresses: projector.address, poll_interval: 300 });
+  const device = await createDevice(gladys);
+  const seen = [];
+  const clientOf = app.clientOf.bind(app);
+  app.clientOf = (arg) => {
+    const client = clientOf(arg);
+    const request = client.request.bind(client);
+    client.request = (cmd, opts) => {
+      if (cmd.body === 'POWR' && cmd.param === '?') {
+        seen.push(opts?.priority === true);
+      }
+      return request(cmd, opts);
+    };
+    return client;
+  };
+  await press(gladys, device, 'standby');
+  seen.length = 0;
+  await clock.advance(12_000);
+  await waitFor(() => seen.length > 0, 'a dedicated reading');
+  assert.ok(
+    seen.every((priority) => !priority),
+    JSON.stringify(seen),
+  );
+});

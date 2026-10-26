@@ -43,7 +43,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (PjlinkApp)
   sent again blindly. Not accepted (ERR3, no answer, unreachable): kept in
   /data and sent again by the readings that show the projector on (its own
   power readings every 12 s while kept, 3 times at
-  most, 2 minutes), decided on a power read at a restart.
+  most, ERR3 refusals not counted, 2 minutes), decided on a power read at a
+  restart.
 - **Password** (optional): MD5 digest before the first command of a
   connection. A missing or refused one blocks the projector, persisted, never
   tried again by itself; only a 6-bit mark of a refused one is kept, to tell

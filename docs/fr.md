@@ -124,7 +124,8 @@ données de l'intégration : un redémarrage la garde aussi) et renvoyée par
 les lectures suivantes qui montrent le vidéoprojecteur allumé : ses propres
 lectures de l'état de marche toutes les 12 s (quel que soit l'intervalle de
 rafraîchissement, arrêtées dès qu'elle est confirmée ou abandonnée) et les
-lectures habituelles, 3 fois au plus, pendant 2 minutes au plus (comptées
+lectures habituelles, 3 fois au plus, les refus ERR3 (préchauffage ou refroidissement) n'étant pas
+comptés, pendant 2 minutes au plus (comptées
 sur une horloge monotone tant que l'intégration tourne). Tant que le
 vidéoprojecteur préchauffe, elle attend. Elle est abandonnée dès qu'une
 lecture montre le vidéoprojecteur en veille ou en refroidissement, ou quand

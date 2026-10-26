@@ -1026,7 +1026,7 @@ export class PjlinkApp {
         return;
       }
       if (p.standby.boot !== 'password') {
-        await this.checkStandby(p);
+        await this.checkStandby(p, { priority: false });
       }
       if (p.standby) {
         this.watchStandby(p);
@@ -1090,10 +1090,10 @@ export class PjlinkApp {
     const stops = this.counter(this.stops, id);
     const standby = projector.standby;
     const deadline = rt() + this.timings.standbyBudget;
-    /** Counted as a send of the kept standby only when it left. */
-    const left = () => {
+    /** Counted as a send of the kept standby only when it left (not ERR3). */
+    const left = (counts = true) => {
       this.bump(this.sends, id);
-      if (resend && standby && projector.standby === standby) {
+      if (counts && resend && standby && projector.standby === standby) {
         standby.sends += 1;
         this.persist();
       }
@@ -1150,8 +1150,9 @@ export class PjlinkApp {
       } catch (err) {
         last = err;
         if (err.kind === ERROR_KINDS.REFUSED) {
-          left();
-          // ERR3 (warming up, cooling down): the power read back tells which.
+          // ERR3 (warming up, cooling down) is not one of the resends.
+          left(err.code !== 'ERR3');
+          // The power read back tells which.
           const power = await verify();
           if (isStandbyState(power)) {
             return settle(power);
@@ -1228,7 +1229,7 @@ export class PjlinkApp {
   }
 
   /** A kept standby at a (re)start: the power read first, then the decision. */
-  async checkStandby(projector, { boot = false } = {}) {
+  async checkStandby(projector, { boot = false, priority = true } = {}) {
     const name = projectorName(projector);
     if (!projector.host) {
       return { message: `${name}: address unknown` };
@@ -1240,7 +1241,7 @@ export class PjlinkApp {
       power = parsePower(
         await client.request(
           { cls: 1, body: 'POWR', param: '?' },
-          { deadline: rt() + this.timings.standbyBudget, priority: true, password },
+          { deadline: rt() + this.timings.standbyBudget, priority, password },
         ),
       );
     } catch (err) {
