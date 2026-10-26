@@ -29,6 +29,9 @@ export default [
       // Unused variables are a mistake; allow a leading underscore to mark an
       // argument as intentionally ignored (e.g. `(_gladys, config) => ...`).
       'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // Control characters are matched on purpose: hostile input is checked
+      // for them (CR, LF, escape sequences) before it goes anywhere.
+      'no-control-regex': 'off',
     },
   },
   // Prettier last: it only removes rules, so it must win.

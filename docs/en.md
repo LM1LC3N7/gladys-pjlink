@@ -1,61 +1,150 @@
-# Demo Devices Template
+# PJLink projectors for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Control your **PJLink projectors** from Gladys, locally, without any cloud:
+power on, standby, input, A/V mute, the lamp hours and the error report.
+PJLink is the network control standard of many projectors and some flat
+screens (Epson, Panasonic, NEC / Sharp, Sony, BenQ, Canon, Hitachi / Maxell,
+Optoma, Ricoh, Christie...), class 1 and class 2.
+
+> **Important.** This integration has never been tested with a real device:
+> it was written from the public PJLink specification, cross-checked with the
+> `pypjlink2` library (the one Home Assistant uses), and tested against a fake
+> projector only. Your feedback is welcome.
+> Unofficial integration, not affiliated with JBMIA (the association behind
+> PJLink) nor with any projector maker.
+
+## Setup
+
+1. On the projector, enable **PJLink** (depending on the maker: _Network_ >
+   _Network control_, _PJLink_, _Control_...) and the **network standby**
+   (for example _Standby mode: Network on_). Without it, the projector leaves
+   the network in standby and cannot be turned on from Gladys.
+2. Give each projector a **fixed IP address** in your router (reserved DHCP
+   lease).
+3. In Gladys, install the **PJLink Projectors** integration, then open its
+   configuration.
+4. Type the IP addresses, separated by commas (for example
+   `192.168.1.60, 192.168.1.61`, 10 at most). Add `:port` only if the
+   projector does not use the PJLink port, 4352.
+5. If a PJLink password protects your projectors, type it (32 characters at
+   most, without accents, the same for all of them).
+6. Open the **Discovery** tab and scan: the projectors appear, create them.
+
+The integration talks to the projector with **PJLink** (TCP port 4352): one
+connection at a time (a projector accepts only one), closed after 3 s of
+silence. It reads the state at the refresh interval of the configuration
+(60 s by default, 30 s at least).
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+| Feature    | Gladys type              | Note                                                  |
+| ---------- | ------------------------ | ----------------------------------------------------- |
+| Power      | binary state (read only) | 1 on or warming up, 0 in standby or cooling down      |
+| Power on   | button                   | sent only from standby                                |
+| Standby    | button                   | the protective command, see below                     |
+| Status     | text (read only)         | Standby, Warming up, On, Cooling down, Unreachable... |
+| Input      | dropdown                 | the inputs the projector lists, with their names      |
+| A/V mute   | button (mute)            | each press reads the state, then sets the opposite    |
+| Lamp hours | duration in hours        | the first lamp; absent on models that do not give it  |
+| Errors     | text (read only)         | `OK`, or for example `Lamp: warning, Filter: error`   |
 
-## Configuration
+On purpose, no **switch**: an "everything off" or "everything on" from a
+voice assistant or a scene neither turns your projector on nor cuts it.
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+Input and A/V mute are read and set only while the projector is on. The input
+names come from the projector (class 2: `HDMI 1`...); on a class 1 projector
+they are named by type (`Digital 1`, `RGB 1`...). They are read when you scan
+in the Discovery tab.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+Each projector is known by its **serial number** (class 2), or by its
+**address** (class 1, or a projector that gives none). Before anything is
+published or sent (Standby aside), the integration checks once per connection
+that it talks to the same projector: the serial number, or the maker and
+model for a projector known by its address. Another serial number at the
+address: the projector is marked "Another projector at this address" and
+nothing is sent to it; type its new address and scan again. Unreadable: its
+status shows "Identity not confirmed" and nothing is sent to it but Standby.
 
-## Actions
+## Commands
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+Power on, input and A/V mute read the power state just before, then the
+current value, and are decided on what they read. A command is a success only
+once the projector shows the requested value when read back; Gladys gives a
+command 5 seconds, so every command is answered within 3.5 s, with exactly
+what is known:
 
-## Scenes
+- "nothing sent": the projector did not answer, a password is missing or
+  refused, the identity is not confirmed, a Standby was asked meanwhile or is
+  not confirmed yet (input and A/V mute), or no time was left;
+- "sent, without confirmation" or "not applied yet": the command left; the
+  projector is read again 5 s and 20 s later;
+- "refused by the projector (ERR3)": the projector answered with an error
+  (ERR3 means "not now", for example while warming up).
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+Commands to one projector go one at a time.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+### Standby, the protective command
 
-## Dashboard
+Standby is never held back by a reading or a command in progress, the
+commands waiting, the configuration not read yet, or a state not read yet:
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+- it goes before everything waiting for that projector; the commands asked
+  before it and still waiting are cancelled ("nothing sent"), so nothing
+  asked before a Standby is sent after it;
+- a reading stuck for 1 s (no byte from the projector) is cut, and the
+  standby leaves on a new connection once the old one is closed;
+- `POWR 0` is sent without reading anything first, then the power is read
+  back: "Standby" or "Cooling down" confirms it;
+- when no connection can be made, it is tried again every 250 ms within its
+  3.2 s.
 
-## Troubleshooting
+A Standby not confirmed is **kept** (in the data of the integration, so a
+restart keeps it too) and sent again by the next readings, the first ones 5 s
+and 20 s later, 3 times at most, for 10 minutes at most. It is dropped once a
+reading shows the projector in standby or cooling down, or warming up (a
+power on started since, by the remote or by Gladys, and seen warming up is
+not stopped by a resend), or when a Power on sent from Gladys after it is
+accepted. A projector seen on at a reading gets it again: if the readings
+missed both its cool-down and a new power on by the remote (unreachable
+meanwhile), that power on is stopped. At a
+restart, the kept standbys are sent at once, before the configuration is
+read and before any reading.
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+The cases where a Standby does not leave ("nothing sent", kept and sent again
+as above):
+
+1. the address of the projector is unknown (another projector proved to
+   answer there);
+2. the projector asks for a password and none is typed, or the typed one was
+   refused (a refused password is not sent again by a Standby; right after a
+   restart, a projector asking for a password gets the standby once the
+   configuration is read);
+3. no connection within its 3.2 s (unreachable).
+
+## Passwords
+
+A missing or refused password blocks its projector: no reading, no command,
+no automatic retry, a reconnection or a restart included. The status says so.
+The block is lifted when you change the password in the configuration, or
+when the **Check the projectors** button succeeds (each press tries once;
+after a restart, a new password is recognized by its mark, see below, and in
+1 case out of 64 it is taken for the old one: press the button then).
+The password is kept by Gladys in its database, never shown again, sent only
+to the projectors as the MD5 digest PJLink uses, never written in the logs nor
+in the data of the integration. To know after a restart whether the password
+changed, the integration keeps only a 6-bit mark of a refused password (one
+value among 64, which identifies nothing), erased once a password is
+accepted.
+
+## Check the projectors
+
+The **Check the projectors** button shows the state of each projector. A
+projector read less than one refresh interval ago is shown as read, not asked
+again; a scan, a reconnection or a saved configuration does not make the
+projectors read sooner either.
+
+## Not supported yet
+
+Volume, freeze, filter hours, the notifications of class 2 (search by UDP
+broadcast, status pushed by the projector), one password per projector. See
+the project's TODO.md.
