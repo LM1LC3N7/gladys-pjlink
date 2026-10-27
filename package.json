@@ -1,6 +1,6 @@
 {
   "name": "gladys-pjlink",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Gladys Assistant external integration for PJLink projectors (Epson, Panasonic, NEC, Sony, BenQ...): power on, standby, input, A/V mute, lamp hours, errors, over the local PJLink protocol (TCP 4352). Unofficial.",
   "type": "module",
