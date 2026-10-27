@@ -62,9 +62,10 @@ up to date at the end of every milestone.
   so it is written from the specification in JavaScript (`src/pjlink/`) and
   only cross-checked with the library (notice in `THIRD_PARTY_NOTICES.md`,
   copied into the image). No runtime dependency besides the SDK.
-- SDK `^0.15.0`: the template asks `^0.16.0`, not published on npm on
-  2026-10-26 (`npm view` gives 0.15.0). Migrate when it is (CHANGELOG 0.16.0:
-  music, AI and TTS types, nothing used here).
+- **SDK `^0.16.0`** (2026-10-27, migration wave 3): 0.16.0 is on npm since
+  2026-10-25 (a stale npm cache said otherwise); it adds the ai, tts and music
+  types; no effect here (`poll_frequency` unused). `keywords`, `countries`
+  and `gladys_version >= 5.3.0` wait until Gladys 5.3 is widespread.
 - Version 0.1.0 in `package.json`, `package-lock.json`, the manifest and the
   `docker_image` tag, set by hand at milestone 1: the one exception to
   "versions belong to the Release workflow", because the template's 1.0.0 and
